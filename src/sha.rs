@@ -1,0 +1,1 @@
+// For some reason, I've decided to implement SHA1 by hand instead of using a library. Might be a mistake.

@@ -13,18 +13,18 @@ pub enum BType {
 
 pub fn parse_start(input: &String) -> Result<BType, String> {
     match parse(input, 0) {
-        Ok((b, i)) => return Ok(b),
+        Ok((b, _)) => return Ok(b),
         Err(x) => return Err(x)
     }
 }
 
-fn parse(input: &String, mut pos: usize) -> Result<(BType, usize), String> {
+fn parse(input: &String, pos: usize) -> Result<(BType, usize), String> {
     match input.chars().nth(pos) {
         Some('i') => return parse_int(input, pos),
         Some('l') => return parse_list(input, pos),
         Some('d') => return parse_dict(input, pos),
-        Some(x) if x.is_ascii_digit() => return (parse_string(input, pos)), 
-        Some(y) => return Err(String::from("Error")),
+        Some(x) if x.is_ascii_digit() => return parse_string(input, pos), 
+        Some(_) => return Err(String::from("Error")),
         None => return Err(String::from("Error")) 
     }
 }
@@ -49,7 +49,7 @@ fn parse_int(input: &String, mut pos: usize) -> Result<(BType, usize), String> {
             Some(i) if i.is_ascii_digit() => {
                 return Err(String::from("Bencode ERROR: Int cannot start with 0."));
             }  
-            Some(i) => {
+            Some(_) => {
                 return Err(String::from("Bencode ERROR: Digit expected."));
             }
             None => {
@@ -69,7 +69,7 @@ fn parse_int(input: &String, mut pos: usize) -> Result<(BType, usize), String> {
                     .unwrap();
                     return Ok((BType::BInt(output), pos));
                 }
-                Some(x) => {
+                Some(_) => {
                     return Err(String::from("Bencode ERROR: Digit expected."));
                 } 
                 None => {
@@ -91,7 +91,7 @@ fn parse_string(input: &String, mut pos: usize) -> Result<(BType, usize), String
         match p {
             Some(x) if x.is_ascii_digit() => len.push(x),
             Some(':') => break,
-            Some(x) => return Err(String::from("Bencode ERROR: Expected \':\'")),
+            Some(_) => return Err(String::from("Bencode ERROR: Expected \':\'")),
             None => return Err(String::from("Bencode ERROR: Unexpected end."))
         }
         pos = pos + 1;
@@ -104,7 +104,7 @@ fn parse_string(input: &String, mut pos: usize) -> Result<(BType, usize), String
     while index < len_int {
         match input.chars().nth(pos) {
             Some(x) if x.is_alphanumeric() => s.push(x),
-            Some(y) => return Err(String::from("Bencode ERROR: Expected an alphanumeric char.")),
+            Some(_) => return Err(String::from("Bencode ERROR: Expected an alphanumeric char.")),
             None => return Err(String::from("Bencode ERROR: Expected more characters."))
         }
         index = index + 1;
@@ -124,7 +124,7 @@ fn parse_list(input: &String, mut pos: usize) -> Result<(BType, usize), String> 
             None => {
                 return Err(String::from("Bencode ERROR: Unexpected end."));
             }
-            Some(x) => {
+            Some(_) => {
                 match parse(input, pos) {
                     Ok((b, i)) => {
                         v.push(b);
@@ -150,7 +150,7 @@ fn parse_dict(input: &String, mut pos: usize) -> Result<(BType, usize), String> 
             None => {
                 return Err(String::from("Bencode ERROR: Unexpected end."));
             }
-            Some(x) => {
+            Some(_) => {
                 match parse_string(input, pos) {
                     Ok((k, i)) => {
                         match parse(input, i+1) {
