@@ -60,7 +60,7 @@ fn parse_int(input: &Vec<u8>, mut pos: usize) -> Result<(BType, usize), String> 
         loop {
             match p {
                 Some(&i) if (i >= 48 && i <= 57) => {
-                    num.push((i-48) as char);
+                    num.push(i as char);
                 }
                 Some(&101) => {
                     let output: i128 = num.parse()
@@ -87,7 +87,7 @@ fn parse_string(input: &Vec<u8>, mut pos: usize) -> Result<(BType, usize), Strin
 
     loop {
         match p {
-            Some(&x) if (x >= 48 && x <= 57) => len.push((x-48) as char),
+            Some(&x) if (x >= 48 && x <= 57) => len.push(x as char),
             Some(&58) => break,
             None => return Err(String::from("Bencode ERROR: Unexpected end.")),
             _ => return Err(String::from("Bencode ERROR: Expected \':\'")),
@@ -95,7 +95,6 @@ fn parse_string(input: &Vec<u8>, mut pos: usize) -> Result<(BType, usize), Strin
         pos = pos + 1;
         p = input.get(pos);
     }
-    
     let len_int: usize = len.parse().unwrap();
     pos = pos + 1;
     let mut index = 0;
@@ -232,4 +231,51 @@ pub fn encode(btype: BType) -> Result<Vec<u8>, String> {
         }
     }
     return Ok(encoded);
+}
+
+pub fn print_decoded(btype: BType) -> () {
+    match btype {
+        BType::BInt(i) => {
+            print!("{}", i);
+        }
+        BType::BString(s) => {
+            if s.iter().all(|&x| is_printable(x)) {
+                for &x in s.iter() {
+                    print!("{}", x as char);
+                }
+            }
+            else {
+                print!("String(");
+                for &x in s.iter() {
+                    print!("{}", x);
+                }
+                print!(")");
+            }
+        }
+        BType::BList(v) => {
+            print!("[");
+            for elem in v {
+                print_decoded(elem);
+                print!(", ")
+            }
+            print!("]");
+        }
+        BType::BDict(d) => {
+            print!("{{");
+            for (key, value) in d {
+                print_decoded(key);
+                print!(": ");
+                print_decoded(value);
+                print!(", ");
+            }
+            print!("}}");
+        }
+    }
+}
+
+fn is_printable(c: u8) -> bool {
+    if c <= 127 {
+        return true;
+    }
+    return false;
 }
