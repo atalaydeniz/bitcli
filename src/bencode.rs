@@ -3,7 +3,7 @@
 //       Implement HashMap for dict type of bencode
 //       Make the code concise: Last 40-50 lines looks disgusting.
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum BType {
     BString(Vec<u8>),
     BInt(i128),
@@ -273,9 +273,55 @@ pub fn print_decoded(btype: BType) -> () {
     }
 }
 
+pub fn print_vec_to_ascii(vec: &Vec<u8>) -> () {
+    for elem in vec {
+        if is_printable(*elem) {
+            print!("{}", *elem as char);
+        }
+        else {
+            print!("?");
+        }
+    }
+}
+
 fn is_printable(c: u8) -> bool {
     if c <= 127 {
         return true;
     }
     return false;
+}
+
+pub fn get_value(key: String, dict: &Vec<(BType, BType)>) -> Result<BType, String> {
+    let key_ext: &[u8] = key.as_bytes();
+    for (k, v) in dict {
+        match k {
+            BType::BString(real_key) => {
+                if vec_compare(&real_key, key_ext) {
+                    let ret = v.clone();
+                    return Ok(ret);
+                }
+                else {
+                    continue;
+                }
+            }
+            _ => {
+                return Err(String::from("Key error: Key is not BString."));
+            }
+        }
+    }
+    return Err(String::from("Key not found."));
+}
+
+fn vec_compare(vec1: &Vec<u8>, vec2: &[u8]) -> bool {
+    if vec1.len() != vec2.len() {
+        return false;
+    }
+    let mut index = 0;
+    while index < vec1.len() {
+        if vec1[index] != vec2[index] {
+            return false;
+        }
+        index = index + 1;
+    }
+    return true;
 }

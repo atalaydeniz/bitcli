@@ -7,7 +7,14 @@ fn main() -> () {
     let torrent_file = sha::read_torrent(r"C:\Users\deniz\Downloads\26F1CE29E36B0B4B72A1B0974776AF082F97FCB0.torrent").unwrap();
     let decoded_file = bencode::decode(&torrent_file);
     match decoded_file {
-        Ok(b) => bencode::print_decoded(b),
+        Ok(b) => {
+            match b {
+                bencode::BType::BDict(d) => {
+                    bencode::print_vec_to_ascii(&bencode::encode(bencode::get_value(String::from("info"), &d).unwrap()).unwrap());
+                }
+                _ => {();}
+            }
+        }
         _ => ()
     }
 
