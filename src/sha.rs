@@ -74,3 +74,14 @@ pub fn sha1_hex_string(sha1_string: &String) -> String {
         .collect();
     return hex_info_hash;
 }
+
+pub fn sha1_to_bytes(info_hash: &String) -> Vec<u8> {
+    info_hash.as_bytes()
+        .chunks_exact(2)
+        .map(|pair| {
+            let hi = (pair[0] as char).to_digit(16).unwrap() as u8;
+            let lo = (pair[1] as char).to_digit(16).unwrap() as u8;
+            (hi << 4) | lo
+        })
+        .collect()
+}

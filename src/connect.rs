@@ -1,5 +1,6 @@
 pub mod handlehttp;
 pub mod handleudp;
+pub mod connectpeer;
 use std::fs;
 use rand::RngExt;
 use crate::bencode::{BType,bstring_to_ascii};
@@ -72,13 +73,15 @@ pub fn get_trackers(b_announce: BType, b_announce_list: BType) -> Result<Vec<Str
     return Ok(tracker_list);
 }
 
-pub fn connect(url_list: &Vec<String>, info_hash: &String, peer_id: &String, port: usize, left: &String) -> Result<(), String> {
+pub fn connect(url_list: &Vec<String>, info_hash: &String, peer_id: &String, port: usize, left: &String) -> Result<Vec<u8>, String> {
+    return Err("Try".to_string());
+    
     for url in url_list {
         match udp_host(url.as_str()) {
             Some(udp_url) => {
                 match udp_req_tracker_connect(udp_url) {
                     Ok(i) => {
-                        return Ok(());
+                        println!("Udp works");
                     }
                     Err(e) => {
                         println!("{}", e);
@@ -86,7 +89,11 @@ pub fn connect(url_list: &Vec<String>, info_hash: &String, peer_id: &String, por
                 }
             }
             None => {
-                connect_tracker_http(url, info_hash, peer_id, port, left, 1);
+                let response_result = connect_tracker_http(url, info_hash, peer_id, port, left, 1) ;
+                match response_result {
+                    Ok(v) => return Ok(v),
+                    Err(error) => println!("{}", error)
+                }
             }
         }
     }

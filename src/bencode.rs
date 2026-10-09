@@ -1,8 +1,3 @@
-// Current State: Not thoroughly tested, but it seems working.
-// Todo: Write tests
-//       Implement HashMap for dict type of bencode
-//       Make the code concise: Last 40-50 lines looks disgusting.
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum BType {
     BString(Vec<u8>),
@@ -11,23 +6,49 @@ pub enum BType {
     BDict(Vec<(BType, BType)>)
 }
 
-pub fn decode(input: &Vec<u8>) -> Result<BType, String> {
-    match parse(input, 0) {
-        Ok((b, _)) => return Ok(b),
-        Err(x) => return Err(x)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BencodeParseError {
+    UnexpectedEnd,
+    UnexpectedByte { byte: u8, pos: usize },
+    IntLeadingZero { pos: usize },
+    IntExpectedDigit { pos: usize },
+    IntInvalid { pos: usize },
+    StrExpectedColon { pos: usize },
+    StrTooShort { pos: usize, expected: usize },
+}
+
+impl fmt::Display for BencodeParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use BencodeParseError::*;
+        match self {
+            UnexpectedEnd => write!(f, "unexpected end of input"),
+            UnexpectedByte { byte, pos } => {
+                write!(f, "unexpected byte 0x{:02x} at position {}", byte, pos)
+            }
+            LeadingZero { pos } => write!(f, "integer with leading zero at position {}", pos),
+            ExpectedDigit { pos } => write!(f, "expected a digit at position {}", pos),
+            InvalidInteger { pos } => write!(f, "invalid integer at position {}", pos),
+            ExpectedColon { pos } => write!(f, "expected ':' at position {}", pos),
+            StringTooShort { pos, expected } => {
+                write!(f, "string at position {} needs {} more bytes than available", pos, expected)
+            }
+        }
     }
 }
 
-fn parse(input: &Vec<u8>, pos: usize) -> Result<(BType, usize), String> {
-    if pos >= input.len() {
-        return Err(String::from("Bencode ERROR: Unexpected end."));
-    }
-    match input[pos] {
-        105 => return parse_int(input, pos),
-        108 => return parse_list(input, pos),
-        100 => return parse_dict(input, pos),
-        x if (x >= 48 && x <= 57) => return parse_string(input, pos), 
-        _ => return Err(String::from("Error")), 
+pub fn decode(input: &[u8]) -> Result<BType, BencodeParseError> {
+    let (parsed_btype, pos) = parse(input)?;
+    return Ok(parsed_btype);
+}
+
+fn parse(input: &[u8], pos: usize) -> Result<(BType, usize), BencodeParseError> {
+    let &byte = input.get(pos).ok_or(BencodeParseError::UnexpectedEnd)?;
+    match byte {
+        b'i' => return parse_int(input, pos),
+        b'l' => return parse_list(input, pos),
+        b'd' => return parse_dict(input, pos),
+        b'0'..=b'9' => return parse_string(input, pos), 
+        _ => return Err(BencodeParseError::UnexpectedByte{byte, pos}), 
     }
 }
 
