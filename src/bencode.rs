@@ -9,12 +9,14 @@ pub enum BType {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BencodeParseError {
     UnexpectedEnd,
-    UnexpectedByte { byte: u8, pos: usize },
-    IntLeadingZero { pos: usize },
-    IntExpectedDigit { pos: usize },
-    IntInvalid { pos: usize },
-    StrExpectedColon { pos: usize },
-    StrTooShort { pos: usize, expected: usize },
+    UnexpectedByte {byte: u8, pos: usize},
+    IntLeadingZero {pos: usize},
+    IntExpectedDigit {pos: usize},
+    IntInvalid {pos: usize},
+    IntNegativeZero {pos: usize},
+    StrExpectedColon {pos: usize},
+    StrTooShort {pos: usize, expected: usize},
+    StrInvalidLength {pos: usize}
 }
 
 impl fmt::Display for BencodeParseError {
@@ -22,16 +24,34 @@ impl fmt::Display for BencodeParseError {
         use BencodeParseError::*;
         match self {
             UnexpectedEnd => write!(f, "unexpected end of input"),
-            UnexpectedByte { byte, pos } => {
+            UnexpectedByte {byte, pos} => {
                 write!(f, "unexpected byte 0x{:02x} at position {}", byte, pos)
             }
-            LeadingZero { pos } => write!(f, "integer with leading zero at position {}", pos),
-            ExpectedDigit { pos } => write!(f, "expected a digit at position {}", pos),
-            InvalidInteger { pos } => write!(f, "invalid integer at position {}", pos),
-            ExpectedColon { pos } => write!(f, "expected ':' at position {}", pos),
-            StringTooShort { pos, expected } => {
+            IntLeadingZero {pos} => write!(f, "integer with leading zero at position {}", pos),
+            IntExpectedDigit {pos} => write!(f, "expected a digit at position {}", pos),
+            IntInvalid {pos} => write!(f, "invalid integer at position {}", pos),
+            IntNegativeZero {pos} => write!(f, "negative zero at position {}", pos),
+            StrExpectedColon {pos} => write!(f, "expected ':' at position {}", pos),
+            StrTooShort {pos, expected} => {
                 write!(f, "string at position {} needs {} more bytes than available", pos, expected)
             }
+            StrTooShort {pos} => {
+                write!(f, "length is invalid at position {}", pos)
+            }
+        }
+    }
+}
+
+pub enum BDictKeyError {
+    KeyNotFound {key: String},
+    KeyNotBString
+}
+
+impl fmt::Display for BDictKeyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BDictKeyError::KeyNotFound => write!(f, "Key not found in bencode string: {}", key),
+            BDictKeyError::KeyNotBString => write!(f, "Key is not a encoded string"),
         }
     }
 }
@@ -52,77 +72,69 @@ fn parse(input: &[u8], pos: usize) -> Result<(BType, usize), BencodeParseError> 
     }
 }
 
-fn parse_int(input: &Vec<u8>, mut pos: usize) -> Result<(BType, usize), String> {
+fn parse_int(input: &[u8], mut pos: usize) -> Result<(BType, usize), BencodeParseError> {
     pos = pos + 1;
     let mut num = String::from("");
-    let mut p = input.get(pos);
-    if p == Some(&45) {
+    let mut p = *input.get(pos).ok_or(BencodeParseError::UnexpectedEnd)?;
+    let mut is_neg = false;
+    if p == b'-' {
+        is_neg = true;
         pos = pos + 1;
-        p = input.get(pos);
+        p = *input.get(pos).ok_or(BencodeParseError::UnexpectedEnd)?;
         num.push('-');
     }
-    if p == Some(&48) {
-        match input.get(pos) {
-            Some(&101) => {
-                return Ok((BType::BInt(0), pos+1));
+    if p == b'0' {
+        match input.get(pos+1) {
+            Some(&b'e') => {
+                if is_neg == false {
+                    return Ok((BType::BInt(0), pos+1));
+                }
+                else {
+                    return Err(BencodeParseError::NegativeZero{pos});
+                }
             }
-            Some(&i) if (i >= 48 && i <= 57) => {
-                return Err(String::from("Bencode ERROR: Int cannot start with 0."));
-            }  
-            None => {
-                return Err(String::from("Bencode ERROR: Unexpected end."));
-            }
-            _ => {
-                return Err(String::from("Bencode ERROR: Digit expected."));
-            }
+            Some(&i) if (i >= 48 && i <= 57) => return Err(BencodeParseError::IntLeadingZero{pos}),  
+            None => return Err(BencodeParseError::UnexpectedEnd),
+            _ => return Err(BencodeParseError::IntExpectedDigit{pos}),
+            
         }    
     } 
     else {
         loop {
             match p {
-                Some(&i) if (i >= 48 && i <= 57) => {
-                    num.push(i as char);
-                }
-                Some(&101) => {
-                    let output: i128 = num.parse()
-                    .unwrap();
+                b'0'..=b'9' => num.push(p as char),
+                b'e' => {
+                    let output: i128 = num.parse().map_err(|_| BencodeParseError::IntInvalid{pos})?;
                     return Ok((BType::BInt(output), pos));
                 }
-                None => {
-                    return Err(String::from("Bencode ERROR: Unexpected end."));
-                }
-                _ => {
-                    return Err(String::from("Bencode ERROR: Digit expected."));
-                } 
+                _ => return Err(BencodeParseError::IntExpectedDigit{pos}), 
             }
             pos = pos+1;
-            p = input.get(pos);
+            p = *input.get(pos).ok_or(BencodeParseError::UnexpectedEnd)?;
         }
     } 
 }
 
-fn parse_string(input: &Vec<u8>, mut pos: usize) -> Result<(BType, usize), String> {
+fn parse_string(input: &[u8], mut pos: usize) -> Result<(BType, usize), BencodeParseError> {
     let mut len = String::from("");
     let mut s = Vec::new();
-    let mut p = input.get(pos);
-
+    let mut p = *input.get(pos).ok_or(BencodeParseError::UnexpectedEnd)?;
     loop {
         match p {
-            Some(&x) if (x >= 48 && x <= 57) => len.push(x as char),
-            Some(&58) => break,
-            None => return Err(String::from("Bencode ERROR: Unexpected end.")),
-            _ => return Err(String::from("Bencode ERROR: Expected \':\'")),
+            b'0'..=b'9' => len.push(p as char),
+            b':' => break,
+            _ => return Err(BencodeParseError::StrExpectedColon{pos}),
         }
         pos = pos + 1;
-        p = input.get(pos);
+        p = *input.get(pos).ok_or(BencodeParseError::UnexpectedEnd)?;
     }
-    let len_int: usize = len.parse().unwrap();
+    let len_int: usize = len.parse().map_err(|_| BencodeParseError::StrInvalidLength{pos})?;
     pos = pos + 1;
     let mut index = 0;
     while index < len_int {
         match input.get(pos) {
             Some(&x) => s.push(x),
-            None => return Err(String::from("Bencode ERROR: Expected more characters."))
+            None => return Err(BencodeParseError::StrTooShort{pos, len_int})
         }
         index = index + 1;
         pos = pos + 1;
@@ -130,67 +142,40 @@ fn parse_string(input: &Vec<u8>, mut pos: usize) -> Result<(BType, usize), Strin
     return Ok((BType::BString(s), pos-1));
 }
 
-fn parse_list(input: &Vec<u8>, mut pos: usize) -> Result<(BType, usize), String> {
+fn parse_list(input: &[u8], mut pos: usize) -> Result<(BType, usize), BencodeParseError> {
     pos = pos + 1;
     let mut v = Vec::new();
     loop {
         match input.get(pos) {
-            Some(&101) => {
-                return Ok((BType::BList(v), pos));
-            }
-            None => {
-                return Err(String::from("Bencode ERROR: Unexpected end."));
-            }
+            Some(&b'e') => return Ok((BType::BList(v), pos)),
+            None => return Err(BencodeParseError::UnexpectedEnd),
             Some(_) => {
-                match parse(input, pos) {
-                    Ok((b, i)) => {
-                        v.push(b);
-                        pos = i + 1;
-                    }
-                    Err(x) => {
-                        return Err(x);
-                    }
-                }
+                let (btype, new_pos) = parse(input, pos)?;
+                v.push(btype);
+                pos = new_pos + 1; 
             } 
         }
     }
 }
 
-fn parse_dict(input: &Vec<u8>, mut pos: usize) -> Result<(BType, usize), String> {
+fn parse_dict(input: &Vec<u8>, mut pos: usize) -> Result<(BType, usize), BencodeParseError> {
     pos = pos + 1;
     let mut d = Vec::new();
     loop {
-        match input.get(pos) {
-            Some(&101) => {
-                return Ok((BType::BDict(d), pos));
-            }
-            None => {
-                return Err(String::from("Bencode ERROR: Unexpected end."));
-            }
+        match *input.get(pos).ok_or(BencodeParseError::UnexpectedEnd)? {
+            b'e' => return Ok((BType::BDict(d), pos)),
+            None => return Err(BencodeParseError::UnexpectedEnd),
             Some(_) => {
-                match parse_string(input, pos) {
-                    Ok((k, i)) => {
-                        match parse(input, i+1) {
-                            Ok((v, j)) => {
-                                d.push((k, v));
-                                pos = j + 1;
-                            }
-                            Err(z) => {
-                                return Err(z);
-                            }
-                        }
-                    }
-                    Err(y) => {
-                        return Err(y);
-                    }
-                }
+                let (key, new_pos) = parse_string(input, pos)?;
+                let (value, new_new_pos) = parse(input, new_pos + 1)?;
+                d.push((key, value);
+                pos = new_new_pos + 1;)    
             }
         }
     }
-
 }
 
-pub fn encode(btype: BType) -> Result<Vec<u8>, String> {
+pub fn encode(btype: &BType) -> Vec<u8> {
     let mut encoded = Vec::new();
     match btype {
         BType::BInt(i) => {
@@ -213,48 +198,31 @@ pub fn encode(btype: BType) -> Result<Vec<u8>, String> {
             encoded.push(b'l');
             for b in v {
                 let encoded_in = encode(b);
-                match encoded_in {
-                    Ok(vec_in) => {
-                        for c in vec_in {
-                            encoded.push(c);
-                        }
-                    }
-                    Err(e) => {
-                        return Err(e);
-                    }
+                for c in encoded_in {
+                    encoded.push(c);
                 }
             }
             encoded.push(b'e');
         }
         BType::BDict(d) => {
             encoded.push(b'd');
-            for (key, value) in d {
-                let encoded_key = encode(key);
-                match encoded_key {
-                    Ok(vec_key) => {
-                        for c in vec_key {
-                            encoded.push(c);
-                        }
-                    }
-                    Err(e) => return Err(e)
+            for (b_key, b_value) in d {
+                let encoded_key = encode(&b_key);
+                for c in encoded_key {
+                    encoded.push(c);
                 }
-                let encoded_value = encode(value); 
-                match encoded_value {
-                    Ok(vec_value) => {
-                        for c in vec_value {
-                            encoded.push(c);
-                        }
-                    }
-                    Err(e) => return Err(e)
+                let encoded_value = encode(&b_value); 
+                for c in encoded_value {
+                    encoded.push(c);
                 }
             }
             encoded.push(b'e');
         }
     }
-    return Ok(encoded);
+    return encoded;
 }
 
-pub fn print_decoded(btype: BType) -> () {
+pub fn print_decoded(btype: &BType) -> () {
     match btype {
         BType::BInt(i) => {
             print!("{}", i);
@@ -294,9 +262,9 @@ pub fn print_decoded(btype: BType) -> () {
     }
 }
 
-pub fn print_vec_to_ascii(vec: &Vec<u8>) -> () {
+pub fn print_bytes_to_ascii(vec: &[u8]) -> () {
     for elem in vec {
-        if is_printable(*elem) {
+        if *elem <= 127 {
             print!("{}", *elem as char);
         }
         else {
@@ -305,7 +273,7 @@ pub fn print_vec_to_ascii(vec: &Vec<u8>) -> () {
     }
 }
 
-pub fn bstring_to_ascii(btype: BType) -> String {
+pub fn bstring_to_ascii(btype: &BType) -> String {
     match btype {
         BType::BString(s) => {
             let mut to_return = String::from("");
@@ -320,44 +288,13 @@ pub fn bstring_to_ascii(btype: BType) -> String {
     }
 }
 
-fn is_printable(c: u8) -> bool {
-    if c <= 127 {
-        return true;
-    }
-    return false;
-}
-
-pub fn get_value(key: String, dict: &Vec<(BType, BType)>) -> Result<BType, String> {
-    let key_ext: &[u8] = key.as_bytes();
+pub fn get_value(key: String, dict: &Vec<(BType, BType)>) -> Result<BType, BDictKeyError> {
     for (k, v) in dict {
         match k {
-            BType::BString(real_key) => {
-                if vec_compare(&real_key, key_ext) {
-                    let ret = v.clone();
-                    return Ok(ret);
-                }
-                else {
-                    continue;
-                }
-            }
-            _ => {
-                return Err(String::from("Key error: Key is not BString."));
-            }
+            BType::BString(real_key) if real_key == key.as_bytes() => return Ok(v.clone()),
+            BType::BString(_) => continue,
+            _ => return Err(BDictKeyError::KeyNotBString),
         }
     }
-    return Err(String::from("Key not found."));
-}
-
-fn vec_compare(vec1: &Vec<u8>, vec2: &[u8]) -> bool {
-    if vec1.len() != vec2.len() {
-        return false;
-    }
-    let mut index = 0;
-    while index < vec1.len() {
-        if vec1[index] != vec2[index] {
-            return false;
-        }
-        index = index + 1;
-    }
-    return true;
+    return Err(BDictKeyError::KeyNotFound{key.to_string()});
 }
