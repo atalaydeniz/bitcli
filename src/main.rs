@@ -1,25 +1,39 @@
 pub mod bencode;
-pub mod connecttracker;
+pub mod connect;
 pub mod sha;
+use bencode::{BType, decode, encode, get_value, bstring_to_ascii};
 
 fn main() -> () {
 
-    let torrent_file = sha::read_torrent(r"C:\Users\deniz\Downloads\26F1CE29E36B0B4B72A1B0974776AF082F97FCB0.torrent").unwrap();
-    let decoded_file = bencode::decode(&torrent_file);
+    let torrent_file = connect::read_torrent(r"C:\Users\deniz\Downloads\26F1CE29E36B0B4B72A1B0974776AF082F97FCB0.torrent").unwrap();
+    let decoded_file = decode(&torrent_file);
     match decoded_file {
         Ok(b) => {
             match b {
-                bencode::BType::BDict(d) => {
-                    bencode::print_vec_to_ascii(&bencode::encode(bencode::get_value(String::from("info"), &d).unwrap()).unwrap());
+                BType::BDict(d) => {
+                    let url = bstring_to_ascii(get_value(String::from("announce"), &d).unwrap());
+                    let info_hash = sha::sha1(encode(get_value(String::from("info"), &d).unwrap()).unwrap());
+                    let peer_id = connect::gen_peer_id();
+                    //let length = bstring_to_ascii(get_value(String::from("length"), &d).unwrap());
+                    match connect::get_trackers(get_value(String::from("announce"), &d).unwrap(), get_value(String::from("announce-list"), &d).unwrap()) {
+                        Ok(v) => {
+                            match connect::connect(&v, &info_hash, &peer_id, 6879, &"32768".to_string()) {
+                                Ok(()) => {
+                                    println!("Good");
+                                }
+                                Err(e) => {
+                                    println!("{}", e);
+                                }
+                            }
+                        }
+                        Err(e) => println!("{}", e)
+                    }
                 }
                 _ => {();}
             }
         }
         _ => ()
     }
-
-    //let encoded = bencode::encode(bencode::BType::BList(Vec::from([bencode::BType::BInt(56), bencode::BType::BString(String::from("abc"))]))).unwrap();
-//    println!("{:?}", encoded);
 
 }
 

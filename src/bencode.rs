@@ -284,6 +284,21 @@ pub fn print_vec_to_ascii(vec: &Vec<u8>) -> () {
     }
 }
 
+pub fn bstring_to_ascii(btype: BType) -> String {
+    match btype {
+        BType::BString(s) => {
+            let mut to_return = String::from("");
+            for c in s {
+                to_return.push(c as char);
+            }
+            return to_return;
+        }
+        _ => {
+            return String::from("");
+        }
+    }
+}
+
 fn is_printable(c: u8) -> bool {
     if c <= 127 {
         return true;
