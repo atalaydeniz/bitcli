@@ -12,7 +12,7 @@ fn main() -> () {
             match b {
                 BType::BDict(d) => {
                     let url = bstring_to_ascii(get_value(String::from("announce"), &d).unwrap());
-                    let info_hash = sha::sha1(encode(get_value(String::from("info"), &d).unwrap()).unwrap());
+                    let info_hash = sha::sha1_string(encode(get_value(String::from("info"), &d).unwrap()).unwrap());
                     let peer_id = connect::gen_peer_id();
                     //let length = bstring_to_ascii(get_value(String::from("length"), &d).unwrap());
                     match connect::get_trackers(get_value(String::from("announce"), &d).unwrap(), get_value(String::from("announce-list"), &d).unwrap()) {
