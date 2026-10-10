@@ -18,7 +18,8 @@ pub enum BencodeParseError {
     IntNegativeZero {pos: usize},
     StrExpectedColon {pos: usize},
     StrTooShort {pos: usize, expected: usize},
-    StrInvalidLength {pos: usize}
+    StrInvalidLength {pos: usize},
+    UnexpectedBencodeValue 
 }
 
 impl fmt::Display for BencodeParseError {

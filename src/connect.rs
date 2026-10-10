@@ -16,8 +16,15 @@ pub enum ConnectionError {
     UdpResponseLength(usize, u32),
     UdpTransactionIdMismatch(String, String),
     UdpTrackerError(String),
-    UdpUnknownActionCode(String)
-    HttpConnectionError(String)
+    UdpUnknownActionCode(String),
+    HttpConnectionError(String),
+    TcpConnectionError(String),
+    TcpAddressNotResolved(String),
+    TcpTimeout(String),
+    TcpSendError(String),
+    TcpNoHandshakeReply(String),
+    TcpProtocolMismatch(String),
+    TcpHashMismatch(String)
 }
 
 impl fmt::Display for ConnectionError {
@@ -33,6 +40,13 @@ impl fmt::Display for ConnectionError {
             UdpTrackerError(e) => write!(f, "Tracker error: {}", e),
             UdpUnknownActionCode(e) => write!(f, "Unexpected action value: {}", e), 
             HttpConnectionError(e) => write!(f, "HTTP connection error: {}", e),
+            TcpConnectionError(e) => write!(f, "TCP connection error: {}", e),
+            TcpAddressNotResolved(e) => write!(f, "TCP host address not resolved: {}", e),
+            TcpTimeout(e) => write!(f, "TCP timeout: {}", e),
+            TcpSendError(e) => write!(f, "TCP could not send: {}", e),
+            TcpNoHandshakeReply(e) => write!(f, "TCP no handshake reply: {}", e),
+            TcpProtocolMismatch => write!(f, "Response is not a BitTorrent protocol message"),
+            TcpHashMismatch => write!(f, "info_hash mismatch"),
         }
     }
 }
