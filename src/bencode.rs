@@ -1,3 +1,5 @@
+use std::fmt;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum BType {
     BString(Vec<u8>),
@@ -35,7 +37,7 @@ impl fmt::Display for BencodeParseError {
             StrTooShort {pos, expected} => {
                 write!(f, "string at position {} needs {} more bytes than available", pos, expected)
             }
-            StrTooShort {pos} => {
+            StrInvalidLength {pos} => {
                 write!(f, "length is invalid at position {}", pos)
             }
         }
@@ -49,15 +51,16 @@ pub enum BDictKeyError {
 
 impl fmt::Display for BDictKeyError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use BDictKeyError::*;
         match self {
-            BDictKeyError::KeyNotFound => write!(f, "Key not found in bencode string: {}", key),
-            BDictKeyError::KeyNotBString => write!(f, "Key is not a encoded string"),
+            KeyNotFound {key} => write!(f, "Key not found in bencode string: {}", key),
+            KeyNotBString => write!(f, "Key is not a encoded string"),
         }
     }
 }
 
 pub fn decode(input: &[u8]) -> Result<BType, BencodeParseError> {
-    let (parsed_btype, pos) = parse(input)?;
+    let (parsed_btype, pos) = parse(input, 0)?;
     return Ok(parsed_btype);
 }
 
@@ -90,7 +93,7 @@ fn parse_int(input: &[u8], mut pos: usize) -> Result<(BType, usize), BencodePars
                     return Ok((BType::BInt(0), pos+1));
                 }
                 else {
-                    return Err(BencodeParseError::NegativeZero{pos});
+                    return Err(BencodeParseError::IntNegativeZero{pos});
                 }
             }
             Some(&i) if (i >= 48 && i <= 57) => return Err(BencodeParseError::IntLeadingZero{pos}),  
@@ -134,7 +137,7 @@ fn parse_string(input: &[u8], mut pos: usize) -> Result<(BType, usize), BencodeP
     while index < len_int {
         match input.get(pos) {
             Some(&x) => s.push(x),
-            None => return Err(BencodeParseError::StrTooShort{pos, len_int})
+            None => return Err(BencodeParseError::StrTooShort{pos: pos, expected: len_int})
         }
         index = index + 1;
         pos = pos + 1;
@@ -158,18 +161,17 @@ fn parse_list(input: &[u8], mut pos: usize) -> Result<(BType, usize), BencodePar
     }
 }
 
-fn parse_dict(input: &Vec<u8>, mut pos: usize) -> Result<(BType, usize), BencodeParseError> {
+fn parse_dict(input: &[u8], mut pos: usize) -> Result<(BType, usize), BencodeParseError> {
     pos = pos + 1;
     let mut d = Vec::new();
     loop {
         match *input.get(pos).ok_or(BencodeParseError::UnexpectedEnd)? {
             b'e' => return Ok((BType::BDict(d), pos)),
-            None => return Err(BencodeParseError::UnexpectedEnd),
-            Some(_) => {
+            _ => {
                 let (key, new_pos) = parse_string(input, pos)?;
                 let (value, new_new_pos) = parse(input, new_pos + 1)?;
-                d.push((key, value);
-                pos = new_new_pos + 1;)    
+                d.push((key, value));
+                pos = new_new_pos + 1;    
             }
         }
     }
@@ -191,7 +193,7 @@ pub fn encode(btype: &BType) -> Vec<u8> {
             }
             encoded.push(b':');
             for c in s {
-                encoded.push(c);
+                encoded.push(*c);
             }
         }
         BType::BList(v) => {
@@ -228,7 +230,7 @@ pub fn print_decoded(btype: &BType) -> () {
             print!("{}", i);
         }
         BType::BString(s) => {
-            if s.iter().all(|&x| is_printable(x)) {
+            if s.iter().all(|&x| x <= 127) {
                 for &x in s.iter() {
                     print!("{}", x as char);
                 }
@@ -278,7 +280,7 @@ pub fn bstring_to_ascii(btype: &BType) -> String {
         BType::BString(s) => {
             let mut to_return = String::from("");
             for c in s {
-                to_return.push(c as char);
+                to_return.push(*c as char);
             }
             return to_return;
         }
@@ -296,5 +298,5 @@ pub fn get_value(key: String, dict: &Vec<(BType, BType)>) -> Result<BType, BDict
             _ => return Err(BDictKeyError::KeyNotBString),
         }
     }
-    return Err(BDictKeyError::KeyNotFound{key.to_string()});
+    return Err(BDictKeyError::KeyNotFound{key});
 }
