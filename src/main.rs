@@ -1,12 +1,32 @@
 pub mod bencode;
 pub mod connect;
 pub mod sha;
-use bencode::{BType, decode, encode, get_value, bstring_to_ascii};
+use bencode::{BType, read_and_decode, decode, encode, bstring_to_ascii, get_value_announce, get_value_info};
+use crate::connect::{get_trackers, Trackers, connect};
+use std::error::Error;
+use std::env;
 
-fn main() -> Result<(), String> {
+fn main() -> Result<(), Box<dyn Error>> {
+    let args: Vec<String> = env::args().collect();
+    if args.len() == 1 {
+        return Err("usage: program <torrent file>".into());
+    }
+    let torrent_path = &args[1];
+    let torrent_file = read_and_decode(torrent_path)?;
+    let (btype_announce, btype_announce_list) = get_value_announce(&torrent_file)?;
+    let announce_urls = get_trackers(btype_announce, btype_announce_list)?;
+    let mut tracker_list = Trackers{tracker_list: Vec::new()};
 
-    let torrent_file = connect::read_torrent(r"C:\Users\deniz\Downloads\26F1CE29E36B0B4B72A1B0974776AF082F97FCB0.torrent").unwrap();
-    let decoded_file = decode(&torrent_file);
+    let info_hash = sha::sha1_string(encode(&get_value_info(&torrent_file)?));
+    let peer_id = connect::gen_peer_id();
+
+    let peer_list = connect(&mut tracker_list, &announce_urls, &info_hash, &peer_id, 6900, 32768)?;
+    for peer in peer_list {
+        connect::connectpeer::connect_peer(&peer, &sha::sha1_to_bytes(&info_hash), &peer_id)?;
+        break;
+    }
+
+    /*
     match decoded_file {
         Ok(b) => {
             match b {
@@ -30,6 +50,7 @@ fn main() -> Result<(), String> {
         }
         _ => return Err(format!("Decoding error"))
     }
+    */
     Ok(())
 }
 

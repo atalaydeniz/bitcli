@@ -3,13 +3,14 @@ use std::fmt;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum BType {
     BString(Vec<u8>),
-    BInt(i128),
+    BInt(i64),
     BList(Vec<BType>),
     BDict(Vec<(BType, BType)>)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BencodeParseError {
+    FileCouldNotRead {error: String},
     UnexpectedEnd,
     UnexpectedByte {byte: u8, pos: usize},
     IntLeadingZero {pos: usize},
@@ -19,13 +20,16 @@ pub enum BencodeParseError {
     StrExpectedColon {pos: usize},
     StrTooShort {pos: usize, expected: usize},
     StrInvalidLength {pos: usize},
-    UnexpectedBencodeValue 
+    UnexpectedBencodeValue {msg: String},
+    BDictKeyNotFound { key: String },
+    BDictKeyNotBString,
 }
 
 impl fmt::Display for BencodeParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use BencodeParseError::*;
         match self {
+            FileCouldNotRead {error} => write!(f, "File couldn't read: {}", error),
             UnexpectedEnd => write!(f, "unexpected end of input"),
             UnexpectedByte {byte, pos} => {
                 write!(f, "unexpected byte 0x{:02x} at position {}", byte, pos)
@@ -41,22 +45,23 @@ impl fmt::Display for BencodeParseError {
             StrInvalidLength {pos} => {
                 write!(f, "length is invalid at position {}", pos)
             }
+            UnexpectedBencodeValue {msg} => write!(f, "Unexpected bencode value: {}", msg),
+            BDictKeyNotFound {key} => write!(f, "Key not found in bencode string: {}", key),
+            BDictKeyNotBString => write!(f, "Key is not a encoded string"),
         }
     }
 }
 
-pub enum BDictKeyError {
-    KeyNotFound {key: String},
-    KeyNotBString
+impl std::error::Error for BencodeParseError {}
+
+fn read_torrent(path: &str) -> std::io::Result<Vec<u8>> {
+    return std::fs::read(path);
 }
 
-impl fmt::Display for BDictKeyError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use BDictKeyError::*;
-        match self {
-            KeyNotFound {key} => write!(f, "Key not found in bencode string: {}", key),
-            KeyNotBString => write!(f, "Key is not a encoded string"),
-        }
+pub fn read_and_decode(path: &str) -> Result<BType, BencodeParseError> {
+    match read_torrent(path) {
+        Ok(torrent_file) => decode(&torrent_file),
+        Err(e) => return Err(BencodeParseError::FileCouldNotRead{error: e.to_string()}),
     }
 }
 
@@ -108,7 +113,7 @@ fn parse_int(input: &[u8], mut pos: usize) -> Result<(BType, usize), BencodePars
             match p {
                 b'0'..=b'9' => num.push(p as char),
                 b'e' => {
-                    let output: i128 = num.parse().map_err(|_| BencodeParseError::IntInvalid{pos})?;
+                    let output: i64 = num.parse().map_err(|_| BencodeParseError::IntInvalid{pos})?;
                     return Ok((BType::BInt(output), pos));
                 }
                 _ => return Err(BencodeParseError::IntExpectedDigit{pos}), 
@@ -291,13 +296,27 @@ pub fn bstring_to_ascii(btype: &BType) -> String {
     }
 }
 
-pub fn get_value(key: String, dict: &Vec<(BType, BType)>) -> Result<BType, BDictKeyError> {
+pub fn get_value_announce(btype: &BType) -> Result<(BType, BType), BencodeParseError> {
+    match btype {
+        BType::BDict(d) => return Ok((get_value("announce".to_string(), &d)?, get_value("announce-list".to_string(), &d)?)),
+        _ => return Err(BencodeParseError::UnexpectedBencodeValue{msg: "Expected dict, found else".to_string()}),
+    }
+}
+
+pub fn get_value_info(btype: &BType) -> Result<BType, BencodeParseError> {
+    match btype {
+        BType::BDict(d) => return Ok(get_value("info".to_string(), &d)?),
+        _ => return Err(BencodeParseError::UnexpectedBencodeValue{msg: "Expected dict, found else".to_string()}),
+    }
+}
+
+pub fn get_value(key: String, dict: &Vec<(BType, BType)>) -> Result<BType, BencodeParseError> {
     for (k, v) in dict {
         match k {
             BType::BString(real_key) if real_key == key.as_bytes() => return Ok(v.clone()),
             BType::BString(_) => continue,
-            _ => return Err(BDictKeyError::KeyNotBString),
+            _ => return Err(BencodeParseError::BDictKeyNotBString),
         }
     }
-    return Err(BDictKeyError::KeyNotFound{key});
+    return Err(BencodeParseError::BDictKeyNotFound{key});
 }

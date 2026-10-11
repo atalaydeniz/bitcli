@@ -29,10 +29,10 @@ pub fn connect_peer(hostport: &String, info_hash: &[u8], peer_id: &String) -> Re
     message[28..48].copy_from_slice(info_hash);
     message[48..68].copy_from_slice(peer_id.as_bytes());
 
-    stream.write_all(&message).map_err(|e| ConnectionError::TcpSendError(e))?;
+    stream.write_all(&message).map_err(|e| ConnectionError::TcpSendError(e.to_string()))?;
 
     let mut reply = [0u8; 68];
-    stream.read_exact(&mut reply).map_err(|e| ConnectionError::TcpNoHandshakeReply(e))?;
+    stream.read_exact(&mut reply).map_err(|e| ConnectionError::TcpNoHandshakeReply(e.to_string()))?;
 
     if reply[0] != 19 || &reply[1..20] != b"BitTorrent protocol" {
         return Err(ConnectionError::TcpProtocolMismatch);

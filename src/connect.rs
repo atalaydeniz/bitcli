@@ -4,10 +4,12 @@ pub mod connectpeer;
 use std::fs;
 use std::fmt;
 use rand::RngExt;
+use std::time::{Duration, Instant};
 use crate::bencode::{BType,bstring_to_ascii};
 use crate::connect::handleudp::{udp_req_tracker_connect};
 use crate::connect::handlehttp::{connect_tracker_http};
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConnectionError {
     AnnounceUrlNotFound,
     UrlContainNonUTF8,
@@ -23,8 +25,9 @@ pub enum ConnectionError {
     TcpTimeout(String),
     TcpSendError(String),
     TcpNoHandshakeReply(String),
-    TcpProtocolMismatch(String),
-    TcpHashMismatch(String)
+    TcpProtocolMismatch,
+    TcpHashMismatch,
+    GenericError(String)
 }
 
 impl fmt::Display for ConnectionError {
@@ -47,9 +50,12 @@ impl fmt::Display for ConnectionError {
             TcpNoHandshakeReply(e) => write!(f, "TCP no handshake reply: {}", e),
             TcpProtocolMismatch => write!(f, "Response is not a BitTorrent protocol message"),
             TcpHashMismatch => write!(f, "info_hash mismatch"),
+            GenericError(e) => write!(f, "generic error: {}", e)
         }
     }
 }
+
+impl std::error::Error for ConnectionError {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PeerUrl {
@@ -57,13 +63,39 @@ pub enum PeerUrl {
     HttpUrl(String),
 }
 
-pub struct ResponseTracker {
-    interval: usize,
-    peers: String
+pub struct Trackers {
+    pub tracker_list: Vec<TrackerState>
 }
 
-pub fn read_torrent(path: &str) -> std::io::Result<Vec<u8>> {
-    return fs::read(path);
+pub struct TrackerState {
+    pub tracker_id: String,
+    pub last_connection: Instant,
+    pub last_response: Option<TrackerResponse>,
+}
+
+pub struct TrackerResponse {
+    pub interval: Duration,
+    pub peers: Vec<String>,
+}
+
+impl Trackers {
+    pub fn find(&mut self, searched_tracker_id: &str) -> Option<&mut TrackerState> {
+        self.tracker_list
+            .iter_mut()
+            .find(|t| t.tracker_id == searched_tracker_id)
+    }
+}
+
+impl TrackerState {
+    pub fn can_connectable(&mut self) -> bool {
+        let now = Instant::now();
+        match &self.last_response {
+            None => true,
+            Some(res) => {
+                return now.duration_since(self.last_connection) >= res.interval;
+            }
+        }
+    }
 }
 
 pub fn gen_peer_id() -> String {
@@ -82,18 +114,19 @@ pub fn gen_peer_id() -> String {
 pub fn get_trackers(b_announce: BType, b_announce_list: BType) -> Result<Vec<String>, ConnectionError> {
     let mut tracker_list = Vec::new();
     match b_announce {
-        BType::BString(s) => tracker_list.push(String::from_utf8(s).map_err(|_| ConnectionError::UrlContainNonUTF8))?,
+        BType::BString(s) => tracker_list.push(String::from_utf8(s).map_err(|_| ConnectionError::UrlContainNonUTF8)?),
         _ => return Err(ConnectionError::AnnounceUrlNotFound),
     }
     match b_announce_list {
         BType::BList(l) => {
             for elem in l {
                 match elem {
-                    BType::BString(s) => tracker_list.push(String::from_utf8(s).map_err(|_| ConnectionError::UrlContainNonUTF8))?,
+                    BType::BString(s) => tracker_list.push(String::from_utf8(s).map_err(|_| ConnectionError::UrlContainNonUTF8)?),
                     BType::BList(ll) => {
                         for elemll in ll {
                             match elemll {
-                                BType::BString(ss) => tracker_list.push(String::from_utf8(ss).map_err(|_| ConnectionError::UrlContainNonUTF8))?,
+                                BType::BString(ss) => tracker_list.push(String::from_utf8(ss)
+                                    .map_err(|_| ConnectionError::UrlContainNonUTF8)?),
                                 _ => return Err(ConnectionError::AnnounceUrlNotFound),
                             }
                         }
@@ -108,21 +141,50 @@ pub fn get_trackers(b_announce: BType, b_announce_list: BType) -> Result<Vec<Str
     return Ok(tracker_list);
 }
 
-pub fn connect(url_list: &Vec<String>, info_hash: &String, peer_id: &String, port: usize, left: &String) -> 
-Result<Vec<u8>, ConnectionError> { 
+pub fn connect(all_trackers: &mut Trackers, url_list: &Vec<String>, info_hash: &String, peer_id: &String, port: usize, left: u64) -> 
+Result<Vec<String>, ConnectionError> { 
     for url in url_list {
         match get_url_http_or_udp(url.as_str()) {
-            Some(PeerUrl::UdpUrl(udp_url)) => { 
-                match udp_req_tracker_connect(udp_url) {
-                    Ok(i) => return Ok(v),
-                    Err(e) => println!("{}", e),
+            Some(PeerUrl::UdpUrl(udp_url)) => {
+                match all_trackers.find(&udp_url) {
+                    Some(tracker_state) => {
+                        if !tracker_state.can_connectable() { continue; }
+                        match udp_req_tracker_connect(&udp_url, info_hash, peer_id, 0, left, 0) {
+                            Ok(tracker_response) => {
+                                let peer_list = (&tracker_response).peers.clone();
+                                tracker_state.last_connection = Instant::now();
+                                tracker_state.last_response = Some(tracker_response);
+                                return Ok(peer_list);
+                            }
+                            Err(e) => println!("{}", e),
+                        }
+                    }
+                    None => {
+                        let mut new_tracker_state = TrackerState{tracker_id: (&udp_url).clone(), last_connection: Instant::now(), last_response: None};
+                        match udp_req_tracker_connect(&udp_url, info_hash, peer_id, 0, left, 0) {
+                            Ok(tracker_response) => {
+                                let peer_list = (&tracker_response).peers.clone();
+                                new_tracker_state.last_connection = Instant::now();
+                                new_tracker_state.last_response = Some(tracker_response);
+                                all_trackers.tracker_list.push(new_tracker_state);
+                                return Ok(peer_list);
+                            }
+                            Err(e) => println!("{}", e),
+                        }
+                    }
                 }
             }
             Some(PeerUrl::HttpUrl(http_url)) => {
-                let response_result = connect_tracker_http(&http_url, info_hash, peer_id, port, left, 1);
-                match response_result {
-                    Ok(v) => return Ok(v),
-                    Err(error) => println!("{}", error)
+                let Some(tracker_state) = all_trackers.find(&http_url) else { continue };
+                if !tracker_state.can_connectable() { continue; }
+                match connect_tracker_http(&http_url, info_hash, peer_id, 6900, 0, left, 0, 1) {
+                    Ok(tracker_response) => {
+                        let peer_list = (&tracker_response).peers.clone();
+                        tracker_state.last_connection = Instant::now();
+                        tracker_state.last_response = Some(tracker_response);
+                        return Ok(peer_list);
+                    }
+                    Err(e) => println!("{}", e),
                 }
             }
             None => println!("URL couldn't resolved")
