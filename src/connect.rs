@@ -154,6 +154,7 @@ Result<Vec<String>, ConnectionError> {
                                 let peer_list = (&tracker_response).peers.clone();
                                 tracker_state.last_connection = Instant::now();
                                 tracker_state.last_response = Some(tracker_response);
+                                println!("Getting peers from the tracker: {}", &url);
                                 return Ok(peer_list);
                             }
                             Err(e) => println!("{}", e),
@@ -167,6 +168,7 @@ Result<Vec<String>, ConnectionError> {
                                 new_tracker_state.last_connection = Instant::now();
                                 new_tracker_state.last_response = Some(tracker_response);
                                 all_trackers.tracker_list.push(new_tracker_state);
+                                println!("Getting peers from the tracker: {}", &url);
                                 return Ok(peer_list);
                             }
                             Err(e) => println!("{}", e),
@@ -182,6 +184,7 @@ Result<Vec<String>, ConnectionError> {
                         let peer_list = (&tracker_response).peers.clone();
                         tracker_state.last_connection = Instant::now();
                         tracker_state.last_response = Some(tracker_response);
+                        println!("Getting peers from the tracker: {}", &url);
                         return Ok(peer_list);
                     }
                     Err(e) => println!("{}", e),

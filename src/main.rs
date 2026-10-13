@@ -22,8 +22,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let peer_list = connect(&mut tracker_list, &announce_urls, &info_hash, &peer_id, 6900, 32768)?;
     for peer in peer_list {
-        connect::connectpeer::connect_peer(&peer, &sha::sha1_to_bytes(&info_hash), &peer_id)?;
-        break;
+        match connect::connectpeer::connect_peer(&peer, &sha::sha1_to_bytes(&info_hash), &peer_id) {
+            Err(e) => println!("{}: {}", &peer, e.to_string()),
+            Ok(()) => println!("Success"),
+        }   
     }
 
     /*
